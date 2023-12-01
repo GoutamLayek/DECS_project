@@ -108,7 +108,7 @@ for(int i=0;i<loopnum;i++)
     }
     else{
       n_success++;
-      // printf("%s\n",buffer);
+     // printf("%s\n",buffer);
     }
      
     
@@ -126,12 +126,13 @@ for(int i=0;i<loopnum;i++)
     total_looptime=((loopend.tv_sec*1000000 + loopend.tv_usec)-(loopstart.tv_sec*1000000 + loopstart.tv_usec))/1000000.0f;
     
     
-    printf("Total looptime: %f\n",total_looptime);
-    printf("Avg response time: %f\n",total_response_time/loopnum);
-    printf("Requests: %lu\n", n_req);
-    printf("Success: %lu\n",n_success);
-    printf("Error: %lu\n", n_err);
-    printf("Timeouts: %lu\n", n_timeouts);
+ printf("Total Loop Time: %f\n",total_looptime);
+ printf("Total response time: %f\n",total_response_time);
+ printf("Number of requests: %ld\n",n_req);
+ printf("Successful responses: %ld\n",n_success);
+ //printf("Total error: %d\n",n_err);
+ printf("Timeouts: %ld\n",n_timeouts);
+
      
     return 0;
      }

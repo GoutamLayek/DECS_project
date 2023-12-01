@@ -53,11 +53,12 @@ char* buildCmd(int numStrings, ...){
     return cmd;
 }
 void* handle_client(void *arg){
-    pthread_detach(pthread_self());
+    pthread_detach(pthread_self());  //A detached thread is one that will clean up its resources automatically when it exits, 
+                                      //without the need for other threads to call pthread_join() to collect its exit status.
     int sockfd = (int)arg;
     char buffer[4096];
     char basename[16];
-    sprintf(basename, "%lu", pthread_self());
+    sprintf(basename, "%lu", pthread_self());  //sprintf function to format and store the thread ID of the current thread as a string in the character array basename
     //printf("%s\n", basename);
     char* sourceFile = getName(basename, ".c", 16, 2);
     char* compilerError = getName(basename, "_cerror.txt", 16, 11);
