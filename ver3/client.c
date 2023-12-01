@@ -9,13 +9,132 @@
 #include <sys/select.h>
 #include <errno.h>
 #include <time.h>
-
+#include <sys/stat.h>
 void error(char *msg)
 {
   perror(msg);
   exit(0);
 }
+#define BUFFER_SIZE 4096
+#define MAX_FILE_SIZE_BYTES 4
+// Utility Function to receive a file of any size to the grading server
+int recv_file(int sockfd, FILE *file)
+// Arguments: socket fd, file name (can include path) into which we will store the received file
+{
+  char buffer[BUFFER_SIZE];   // buffer into which we read  the received file chars
+  bzero(buffer, BUFFER_SIZE); // initialize buffer to all NULLs
+  if (!file)
+  {
+    perror("Error opening file");
+    return -1;
+  }
 
+  puts("\nReceiving File\n");
+
+  // buffer for getting file size as bytes
+  char file_size_bytes[MAX_FILE_SIZE_BYTES];
+  // first receive  file size bytes
+  if (recv(sockfd, file_size_bytes, sizeof(file_size_bytes), 0) == -1)
+  {
+    perror("Error receiving file size");
+    fclose(file);
+    return -1;
+  }
+
+  int file_size;
+  // copy bytes received into the file size integer variable
+  memcpy(&file_size, file_size_bytes, sizeof(file_size_bytes));
+
+  // some local printing for debugging
+  printf("File Size=%d\n", file_size);
+
+  // now start receiving file data
+  size_t bytes_read = 0, total_bytes_read = 0;
+  while (1)
+  {
+    // read max BUFFER_SIZE amount of file data
+    bytes_read = recv(sockfd, buffer, BUFFER_SIZE, 0);
+
+    // total number of bytes read so far
+    total_bytes_read += bytes_read;
+    if (bytes_read <= 0)
+    {
+      perror("Error receiving file data");
+      fclose(file);
+      return -1;
+    }
+
+    // write the buffer to the file
+    fwrite(buffer, 1, bytes_read, file);
+
+    // reset buffer
+    bzero(buffer, BUFFER_SIZE);
+
+    // break out of the reading loop if read file_size number of bytes
+    if (total_bytes_read >= file_size)
+      break;
+  }
+  fclose(file);
+  puts("Received File\n\n");
+  return 0;
+}
+// Utility Function to send a file of any size to the grading server
+int send_file(int sockfd, char *file_path)
+{
+  // Arguments: socket fd, file name (can include path)
+  char buffer[BUFFER_SIZE];           // buffer to read  from  file
+  bzero(buffer, BUFFER_SIZE);         // initialize buffer to all NULLs
+  FILE *file = fopen(file_path, "r"); // open the file for reading, get file descriptor
+  if (!file)
+  {
+    perror("Error opening file");
+    return -1;
+  }
+
+  // for finding file size in bytes
+  fseek(file, 0L, SEEK_END);
+  int file_size = ftell(file);
+  printf("\nSending File\nFile size=%d\n", file_size);
+
+  // Reset file descriptor to beginning of file
+  fseek(file, 0L, SEEK_SET);
+
+  // buffer to send file size to server
+  char file_size_bytes[MAX_FILE_SIZE_BYTES];
+  // copy the bytes of the file size integer into the char buffer
+  memcpy(file_size_bytes, &file_size, sizeof(file_size));
+
+  // send file size to server, return -1 if error
+  if (send(sockfd, &file_size_bytes, sizeof(file_size_bytes), 0) == -1)
+  {
+    perror("Error sending file size");
+    fclose(file);
+    return -1;
+  }
+  puts("Sent File Size");
+  // now send the source code file
+  while (!feof(file))
+  { // while not reached end of file
+
+    // read buffer from file
+    size_t bytes_read = fread(buffer, 1, BUFFER_SIZE - 1, file);
+
+    // send to server
+    if (send(sockfd, buffer, bytes_read + 1, 0) == -1)
+    {
+      perror("Error sending file data");
+      fclose(file);
+      return -1;
+    }
+
+    // clean out buffer before reading into it again
+    bzero(buffer, BUFFER_SIZE);
+  }
+  puts("Sent File\n\n");
+  // close file
+  fclose(file);
+  return 0;
+}
 int main(int argc, char *argv[])
 {
   int sockfd, portno, n;
@@ -81,21 +200,14 @@ int main(int argc, char *argv[])
     {
       error("ERROR connecting");
     }
-    bzero(buffer, 4096);
-    int fd = open(argv[3], O_RDONLY);
-    n = read(fd, buffer, 4094);
-    close(fd);
+
     // send file to server
-    n = write(sockfd, buffer, n);
-    if (n < 0)
-      error("ERROR writing to socket");
-    else
-      n_req++;
+    send_file(sockfd, argv[3]);
+    n_req++;
 
     // receive response from server
-    bzero(buffer, 4096);
     gettimeofday(&respo_start, NULL);
-    n = read(sockfd, buffer, 4095);
+    recv_file(sockfd, stdout);
     // response time calculation
     gettimeofday(&respo_end, NULL);
     double x = ((respo_end.tv_sec * 1000000 + respo_end.tv_usec) - (respo_start.tv_sec * 1000000 + respo_start.tv_usec)) / 1000000.0f;

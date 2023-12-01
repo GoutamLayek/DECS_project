@@ -9,6 +9,8 @@
 #include <sys/stat.h>
 #include <sys/time.h>
 #include "queue.h"
+#define BUFFER_SIZE 4096
+#define MAX_FILE_SIZE_BYTES 4
 pthread_mutex_t qLock;
 pthread_cond_t qNotEmpty;
 Queue *jobs;
@@ -16,6 +18,124 @@ int closepool;
 
 pthread_mutex_t serviceMutex;
 double service_time;
+int recv_file(int sockfd, char *file_path)
+// Arguments: socket fd, file name (can include path) into which we will store the received file
+{
+    char buffer[BUFFER_SIZE];           // buffer into which we read  the received file chars
+    bzero(buffer, BUFFER_SIZE);         // initialize buffer to all NULLs
+    FILE *file = fopen(file_path, "w"); // Get a file descriptor for writing received data into file
+    if (!file)
+    {
+        perror("Error opening file");
+        return -1;
+    }
+
+    puts("\nReceiving File\n");
+
+    // buffer for getting file size as bytes
+    char file_size_bytes[MAX_FILE_SIZE_BYTES];
+    // first receive  file size bytes
+    if (recv(sockfd, file_size_bytes, sizeof(file_size_bytes), 0) == -1)
+    {
+        perror("Error receiving file size");
+        fclose(file);
+        return -1;
+    }
+
+    int file_size;
+    // copy bytes received into the file size integer variable
+    memcpy(&file_size, file_size_bytes, sizeof(file_size_bytes));
+
+    // some local printing for debugging
+    printf("File Size=%d\n", file_size);
+
+    // now start receiving file data
+    size_t bytes_read = 0, total_bytes_read = 0;
+    while (1)
+    {
+        // read max BUFFER_SIZE amount of file data
+        bytes_read = recv(sockfd, buffer, BUFFER_SIZE, 0);
+
+        // total number of bytes read so far
+        total_bytes_read += bytes_read;
+        if (bytes_read <= 0)
+        {
+            perror("Error receiving file data");
+            fclose(file);
+            return -1;
+        }
+
+        // write the buffer to the file
+        fwrite(buffer, 1, bytes_read, file);
+
+        // reset buffer
+        bzero(buffer, BUFFER_SIZE);
+
+        // break out of the reading loop if read file_size number of bytes
+        if (total_bytes_read >= file_size)
+            break;
+    }
+    fclose(file);
+    puts("Received File\n\n");
+    return 0;
+}
+// Utility Function to send a file of any size to the grading server
+int send_file(int sockfd, char *file_path)
+{
+    // Arguments: socket fd, file name (can include path)
+    char buffer[BUFFER_SIZE];           // buffer to read  from  file
+    bzero(buffer, BUFFER_SIZE);         // initialize buffer to all NULLs
+    FILE *file = fopen(file_path, "r"); // open the file for reading, get file descriptor
+    if (!file)
+    {
+        perror("Error opening file");
+        return -1;
+    }
+
+    // for finding file size in bytes
+    fseek(file, 0L, SEEK_END);
+    int file_size = ftell(file);
+    printf("\nSending File\nFile size=%d\n", file_size);
+
+    // Reset file descriptor to beginning of file
+    fseek(file, 0L, SEEK_SET);
+
+    // buffer to send file size to server
+    char file_size_bytes[MAX_FILE_SIZE_BYTES];
+    // copy the bytes of the file size integer into the char buffer
+    memcpy(file_size_bytes, &file_size, sizeof(file_size));
+
+    // send file size to server, return -1 if error
+    if (send(sockfd, &file_size_bytes, sizeof(file_size_bytes), 0) == -1)
+    {
+        perror("Error sending file size");
+        fclose(file);
+        return -1;
+    }
+    puts("Sent File Size");
+    // now send the source code file
+    while (!feof(file))
+    { // while not reached end of file
+
+        // read buffer from file
+        size_t bytes_read = fread(buffer, 1, BUFFER_SIZE - 1, file);
+
+        // send to server
+        if (send(sockfd, buffer, bytes_read + 1, 0) == -1)
+        {
+            perror("Error sending file data");
+            fclose(file);
+            return -1;
+        }
+
+        // clean out buffer before reading into it again
+        bzero(buffer, BUFFER_SIZE);
+    }
+    puts("Sent File\n\n");
+    // close file
+    fclose(file);
+    return 0;
+}
 
 void error(char *msg)
 {
@@ -79,58 +199,60 @@ double handle_client(int arg)
     char *sourceFile = getName(basename, ".c", 16, 2);
     char *compilerError = getName(basename, "_cerror.txt", 16, 11);
     char *runtimeError = getName(basename, "_rerror.txt", 16, 11);
+    char *diffError = getName(basename, "_diff.txt", 16, 9);
     char *output = getName(basename, "_output.txt", 16, 11);
+    char *solution = "solution";
     int n;
-    bzero(buffer, 4096);
     struct timeval respo_start, respo_end;
+    recv_file(sockfd, sourceFile);
     gettimeofday(&respo_start, NULL);
-
-    n = read(sockfd, buffer, 4095);
-    if (n < 0)
-    {
-        printf("Error reading from socket\n");
-    }
-
-    int fd = open(sourceFile, O_RDWR | O_CREAT, 0660);
-    n = write(fd, buffer, n);
-    close(fd);
     char *compile_cmd = buildCmd(6, "gcc ", sourceFile, " -o ", basename, " 2> ", compilerError);
-    // printf("%s\n", compile_cmd);
     int compile_status = system(compile_cmd);
     if (compile_status == 0)
     {
         char *exec_cmd = buildCmd(6, "./", basename, " > ", output, " 2> ", runtimeError);
-        // printf("%s\n", exec_cmd);
         int execute_status = system(exec_cmd);
         if (execute_status == 0)
         {
-            bzero(buffer, 4096);
-            int fd = open(output, O_RDONLY);
-            int n = read(fd, buffer, 4095);
-            close(fd);
-            n = write(sockfd, buffer, n);
-            if (n < 0)
-                error("ERROR writing to socket");
+            char *diff_cmd = buildCmd(6, "diff ", output, "  ", solution, " 2> ", diffError);
+            int diff_status = system(diff_cmd);
+            if (diff_status == 0)
+            {
+                char *msg = "PASS";
+                // send msg
+                n = write(sockfd, msg, strlen(msg));
+                send_file(sockfd, output);
+                if (n < 0)
+                    error("ERROR writing to socket");
+            }
+            else
+            {
+                char *msg = "OUTPUT ERROR";
+                // send msg
+                n = write(sockfd, msg, strlen(msg));
+                send_file(sockfd, diffError);
+                if (n < 0)
+                    error("ERROR writing to socket");
+            }
         }
         else
         {
-            bzero(buffer, 4096);
-            int fd = open(runtimeError, O_RDONLY);
-            int n = read(fd, buffer, 4095);
-            close(fd);
-            n = write(sockfd, buffer, n);
+            char *msg = "RUNTIME ERROR";
+            // send msg
+             n = write(sockfd, msg, strlen(msg));
+            send_file(sockfd, runtimeError);
+
             if (n < 0)
                 error("ERROR writing to socket");
         }
-        // deleteFiles(1, exec_cmd);
+        deleteFiles(1, exec_cmd);
     }
     else
     {
-        bzero(buffer, 4096);
-        int fd = open(compilerError, O_RDONLY);
-        int n = read(fd, buffer, 4095);
-        close(fd);
-        n = write(sockfd, buffer, n);
+        char *msg = "COMPILE ERROR";
+        // send msg
+          n = write(sockfd, msg, strlen(msg));
+        send_file(sockfd, compilerError);
         if (n < 0)
             error("ERROR writing to socket");
     }
@@ -138,7 +260,7 @@ double handle_client(int arg)
     gettimeofday(&respo_end, NULL);
     double x = ((respo_end.tv_sec * 1000000 + respo_end.tv_usec) - (respo_start.tv_sec * 1000000 + respo_start.tv_usec)) / 1000000.0f;
 
-    // deleteFiles(5, sourceFile, compilerError, runtimeError, output, compile_cmd);
+    deleteFiles(5, sourceFile, compilerError, runtimeError, output, compile_cmd);
     remove(basename);
     close(sockfd);
     return x;
@@ -169,7 +291,8 @@ void *threadFunction(void *arg)
     }
     pthread_exit(NULL);
 }
-char *get_threads() {
+char *get_threads()
+{
     // FILE *ps = popen("ps -T --no-headers -p $(pgrep 'server' | xargs echo ;) | wc -l", "r");
     FILE *ps = popen("cat /proc/self/stat | awk '{ print $20 }' |xargs echo -n", "r");
     char *buffer;
@@ -186,8 +309,9 @@ char *get_threads() {
     return NULL;
 }
 // Function to calculate CPU usage percentage
-char *calculate_cpu_usage() {
-    //FILE *cp = popen("top -bn 1 | grep '%Cpu' | awk '{print $2}'| xargs echo -n;", "r");
+char *calculate_cpu_usage()
+{
+
     FILE *cp = popen("top -bn 1 | grep '%Cpu' | awk '{print $2}'", "r");
 
     char *buffer;
@@ -207,32 +331,28 @@ char *calculate_cpu_usage() {
 void *controlFunction(void *args)
 {
     // Creates or opens log file
-    FILE* fd =  fopen("logs.txt", "w+");
+    FILE *fd = fopen("logs.txt", "w+");
     char header[] = "cpu,threads,queue,service_time\n";
     printf("here\n");
     fwrite(header, sizeof(char), sizeof(header), fd);
     while (1)
     {
-        if(closepool) {
+        if (closepool)
+        {
             break;
         }
-        if(system("top -bn 1 | grep '%Cpu' | awk '{print $2}' >> cpu_usage.txt")) {
+        if (system("top -bn 1 | grep '%Cpu' | awk '{print $2}' >> cpu_usage.txt"))
+        {
             puts("Error: top");
         }
         char toExecute[200], cmd[] = "cat /proc/%d/stat | awk '{ print $20 }' >> active_threads.txt";
         sprintf(toExecute, cmd, getpid());
-        if(system(toExecute)) {
+        if (system(toExecute))
+        {
             puts("Error: cat");
         }
-
-        // char *cpu = calculate_cpu_usage();
-        // char *th = get_threads();
-        // // Write the values as a comma-separated string to the file
-        // fprintf(fd, "%s,%s,%ld,%f\n", cpu, th, jobs->size, service_time);
         fprintf(fd, "%lu,%f\n", jobs->size, service_time);
         fflush(fd);
-        // free(cpu);
-        // free(th);
         sleep(0.5);
     }
 }

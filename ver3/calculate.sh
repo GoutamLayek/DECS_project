@@ -22,7 +22,7 @@ total_time=$(awk -v e="$end_time" -v s="$start_time" 'BEGIN { print e-s}')
 cat client*.txt > all_clients.txt
 
 awk -f "final.awk" all_clients.txt > global_data.txt
-rm -f client*.txt
+# rm -f client*.txt
 # rm -f all_clients.txt
 
 avg_response_time=$(awk '{print $1}' global_data.txt)
