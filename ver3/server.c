@@ -122,7 +122,7 @@ double handle_client(int arg)
             if (n < 0)
                 error("ERROR writing to socket");
         }
-        deleteFiles(1, exec_cmd);
+        // deleteFiles(1, exec_cmd);
     }
     else
     {
@@ -138,7 +138,7 @@ double handle_client(int arg)
     gettimeofday(&respo_end, NULL);
     double x = ((respo_end.tv_sec * 1000000 + respo_end.tv_usec) - (respo_start.tv_sec * 1000000 + respo_start.tv_usec)) / 1000000.0f;
 
-    deleteFiles(5, sourceFile, compilerError, runtimeError, output, compile_cmd);
+    // deleteFiles(5, sourceFile, compilerError, runtimeError, output, compile_cmd);
     remove(basename);
     close(sockfd);
     return x;
