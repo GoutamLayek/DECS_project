@@ -1,27 +1,22 @@
 #!/bin/bash
 
-if [ $# -lt 4 ];
+if [ $# -lt 7 ];
 then
-    echo "Usage: $0 <numClients> <loopNum> <sleepTimeInSeconds> <TimeoutInSeconds>"
+    echo "Usage: $0 <serverip> <port no> <filename> <numClients> <loopNum> <sleepTimeInSeconds> <TimeoutInSeconds>"
     exit 1
 fi
-gcc -o client client.c
-file="code.c"
-ip="127.0.0.1"
-port=9000
-for ((i = 1; i <= $1; i++));
+
+serverip=$1
+port=$2
+filename=$3
+no_of_clients=$4
+loopNum=$5
+sleepTime=$6
+timeout=$7
+
+for ((i = 1; i <= $no_of_clients; i++));
 do
-    ./client $ip $port $file $2 $3 $4 >> output_$i.txt &
+    ./client $serverip $port $filename $loopNum $sleepTime $timeout >> client$i.txt &
 
 done
 wait
-sum_of_response_time=0
-total_success=0
-total_errors=0
-total_timeouts=0
-total_req=0
-sum_of_loop_time=0
-for file in output_*.txt;
-do
-    total_req=$(awk -v )
-done
