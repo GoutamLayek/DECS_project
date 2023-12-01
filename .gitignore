@@ -35,10 +35,7 @@
 *.i*86
 *.x86_64
 *.hex
-client
-output
 *.txt
-server
 
 # Debug files
 *.dSYM/
